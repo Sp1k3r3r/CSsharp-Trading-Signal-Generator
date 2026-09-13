@@ -1,78 +1,96 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 namespace TradingSignalGenerator
 {
-    // Класс для хранения данных одного дня
     public class StockCandle
     {
         public string Date { get; set; }
         public double Price { get; set; }
-        public string Signal { get; set; } // BUY, SELL или HOLD
+        public string Signal { get; set; }
     }
 
     class Program
     {
-        static void Main(string[] args)
+        private static readonly string filePath = "trading_signals.csv";
+
+        static async Task Main(string[] args)
         {
-            Console.WriteLine("=== АНАЛИЗАТОР ТОРГОВЫХ СИГНАЛОВ ===");
-
-            // 1. Создаем тестовые данные (имитация цен акции Apple за неделю)
-            List<StockCandle> candles = new List<StockCandle>
+            Console.WriteLine("=== АВТОМАТИЧЕСКИЙ ТРЕЙДИНГ-МОНИТОР ===");
+            List<StockCandle> history = LoadHistoryFromCsv(filePath);
+            StockCandle todayCandle = FetchTodayData();
+            if (history.Any(c => c.Date == todayCandle.Date))
             {
-                new StockCandle { Date = "2026-09-01", Price = 180.5 },
-                new StockCandle { Date = "2026-09-02", Price = 178.2 },
-                new StockCandle { Date = "2026-09-03", Price = 182.0 },
-                new StockCandle { Date = "2026-09-04", Price = 185.4 },
-                new StockCandle { Date = "2026-09-05", Price = 181.1 }
-            };
-
-            // 2. Алгоритм генерации сигналов: 
-            // Если цена растет более чем на 2% за день — BUY, если падает — SELL
-            for (int i = 0; i < candles.Count; i++)
+                Console.WriteLine($"[!] Данные за {todayCandle.Date} уже записаны в таблицу.");
+                return;
+            }
+            if (history.Count > 0)
             {
-                if (i == 0)
-                {
-                    candles[i].Signal = "HOLD"; // Для первого дня нет предыдущей цены
-                    continue;
-                }
-
-                double prevPrice = candles[i - 1].Price;
-                double currentPrice = candles[i].Price;
+                double prevPrice = history.Last().Price;
+                double currentPrice = todayCandle.Price;
                 double changePercent = ((currentPrice - prevPrice) / prevPrice) * 100;
 
                 if (changePercent > 1.5)
-                {
-                    candles[i].Signal = "BUY (Покупка)";
-                }
+                    todayCandle.Signal = "BUY (Покупка)";
                 else if (changePercent < -1.5)
-                {
-                    candles[i].Signal = "SELL (Продажа)";
-                }
+                    todayCandle.Signal = "SELL (Продажа)";
                 else
-                {
-                    candles[i].Signal = "HOLD (Удержание)";
-                }
-            }
+                    todayCandle.Signal = "HOLD (Удержание)";
 
-            // 3. Сохраняем результат в CSV-файл
-            string filePath = "trading_signals.csv";
-            using (StreamWriter writer = new StreamWriter(filePath))
+                Console.WriteLine($"Предыдущая цена: {prevPrice}$ | Сегодня: {currentPrice}$ (Изменение: {changePercent:F2}%)");
+            }
+            else
             {
-                writer.WriteLine("Дата;Цена Закрытия;Сигнал"); // Заголовок CSV
+                todayCandle.Signal = "HOLD (Базовый день)";
+            }
+            AppendToCsv(filePath, todayCandle);
 
-                foreach (var item in candles)
+            Console.WriteLine($"[Успешно] Новые данные за {todayCandle.Date} добавлены в {filePath}!");
+            Console.WriteLine($"Сигнал на сегодня: {todayCandle.Signal}");
+        }
+        static List<StockCandle> LoadHistoryFromCsv(string path)
+        {
+            List<StockCandle> list = new List<StockCandle>();
+            if (!File.Exists(path)) return list;
+
+            string[] lines = File.ReadAllLines(path);
+            for (int i = 1; i < lines.Length; i++)
+            {
+                var parts = lines[i].Split(';');
+                if (parts.Length >= 3 && double.TryParse(parts[1], out double price))
                 {
-                    writer.WriteLine($"{item.Date};{item.Price};{item.Signal}");
-                    Console.WriteLine($"Дата: {item.Date} | Цена: {item.Price} | Сигнал: {item.Signal}");
+                    list.Add(new StockCandle { Date = parts[0], Price = price, Signal = parts[2] });
                 }
             }
+            return list;
+        }
+        static void AppendToCsv(string path, StockCandle candle)
+        {
+            bool fileExists = File.Exists(path);
+            using (StreamWriter writer = new StreamWriter(path, append: true))
+            {
+                if (!fileExists)
+                {
+                    writer.WriteLine("Дата;Цена Закрытия;Сигнал");
+                }
+                writer.WriteLine($"{candle.Date};{candle.Price};{candle.Signal}");
+            }
+        }
+        static StockCandle FetchTodayData()
+        {
+            string today = DateTime.Now.ToString("yyyy-MM-dd");
+            Random rand = new Random();
+            double randomPrice = Math.Round(180.0 + (rand.NextDouble() * 10 - 5), 2);
 
-            Console.WriteLine("\n-------------------------------------------");
-            Console.WriteLine($"Успешно! Отчет сохранен в файл: {Path.GetFullPath(filePath)}");
-            Console.WriteLine("Нажми Enter для выхода...");
-            Console.ReadLine();
+            return new StockCandle
+            {
+                Date = today,
+                Price = randomPrice
+            };
         }
     }
 }
